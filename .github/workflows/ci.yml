@@ -1,40 +1,93 @@
-deploy:
-  name: Deploy to Windows PC
-  needs: test-and-build
-  if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+name: CI CD Pipeline
 
-  runs-on: [self-hosted, Windows, X64, cicd-demo-host]
+on:
+  push:
+    branches: [main]
 
-  permissions:
-    actions: read
-    contents: read
+  pull_request:
+    branches: [main]
 
-  steps:
-    - name: Download website artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: website-build
-        path: website-build
+permissions:
+  contents: read
 
-    - name: Deploy website
-      shell: powershell
-      run: |
-        $source = Join-Path $env:GITHUB_WORKSPACE "website-build"
-        $target = "D:\CECD\website"
+jobs:
+  test-and-build:
+    name: Test and Build
+    runs-on: ubuntu-latest
 
-        if (!(Test-Path "$source\index.html")) {
-          throw "Build artifact missing index.html"
-        }
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-        Copy-Item "$source\*" $target -Recurse -Force -ErrorAction Stop
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
 
-        Write-Host "Deployment successful!"
+      - name: Install dependencies
+        run: npm ci
 
-    - name: Verify deployment
-      shell: powershell
-      run: |
-        if (!(Test-Path "D:\CECD\website\index.html")) {
-          throw "Deployment failed!"
-        }
+      - name: Run tests
+        run: npm test
 
-        Write-Host "Website files verified!"
+      - name: Build website
+        run: npm run build
+
+      - name: Verify build files
+        run: |
+          test -f dist/index.html
+          test -f dist/style.css
+          test -f dist/app.js
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: website-build
+          path: dist/
+
+  deploy:
+    name: Deploy to Windows PC
+    needs: test-and-build
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    runs-on: [self-hosted, Windows, X64, cicd-demo-host]
+
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      - name: Download website artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: website-build
+          path: website-build
+
+      - name: Deploy website
+        shell: powershell
+        run: |
+          $source = Join-Path $env:GITHUB_WORKSPACE "website-build"
+          $target = "D:\CECD\website"
+
+          if (!(Test-Path "$source\index.html")) {
+            throw "Build artifact missing index.html"
+          }
+
+          if (!(Test-Path $target)) {
+            New-Item -ItemType Directory -Force -Path $target | Out-Null
+          }
+
+          Copy-Item "$source\*" $target -Recurse -Force -ErrorAction Stop
+
+          Write-Host "Deployment successful!"
+
+      - name: Verify deployment
+        shell: powershell
+        run: |
+          if (!(Test-Path "D:\CECD\website\index.html")) {
+            throw "Deployment failed!"
+          }
+
+          Write-Host "Website files verified!"
