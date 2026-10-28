@@ -1,4 +1,4 @@
-name: CI Pipeline
+name: CI CD Pipeline
 
 on:
   push:
@@ -8,6 +8,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: cpanel-demo-deploy
+  cancel-in-progress: false
 
 jobs:
   test-and-build:
@@ -44,3 +48,31 @@ jobs:
         with:
           name: website-build
           path: dist/
+
+  deploy:
+    name: Deploy to cPanel
+    needs: test-and-build
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download website build
+        uses: actions/download-artifact@v4
+        with:
+          name: website-build
+          path: dist/
+
+      - name: Deploy using FTPS
+        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
+        with:
+          server: ${{ secrets.CPANEL_FTP_SERVER }}
+          username: ${{ secrets.CPANEL_FTP_USERNAME }}
+          password: ${{ secrets.CPANEL_FTP_PASSWORD }}
+          protocol: ftps
+          port: 21
+          security: strict
+          local-dir: ./dist/
+          server-dir: ./
+          dry-run: true
